@@ -1,5 +1,5 @@
+from gym_treasure_game.envs import TreasureGame
 from s2s.core.build_model import build_model
-from s2s.env.treasure_game.treasure_game import TreasureGame
 
 if __name__ == '__main__':
 
