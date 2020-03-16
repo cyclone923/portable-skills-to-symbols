@@ -57,8 +57,11 @@ def _num_clusters(X: np.ndarray, epsilon: float, min_samples: int) -> int:
 def _is_overlap_init(A: pd.DataFrame, B: pd.DataFrame, **kwargs):
     epsilon = kwargs.get('init_epsilon', 0.05)
     min_samples = kwargs.get('init_min_samples', 5)
-    X = pd2np(A['state'])
-    Y = pd2np(B['state'])
+
+    column = 'agent_state' if kwargs.get('agent_view', False) else 'state'
+
+    X = pd2np(A[column])
+    Y = pd2np(B[column])
     data = np.concatenate((X, Y))
     return _num_clusters(data, epsilon, min_samples) <= max(_num_clusters(X, epsilon, min_samples),
                                                             _num_clusters(Y, epsilon, min_samples))
@@ -76,9 +79,10 @@ def _partition_option(option: int, data: pd.DataFrame, verbose=False, **kwargs) 
     data = data.reset_index(drop=True)  # reset the indices since the data is a subset of the full transition data
     partition_effects = list()
     # extract the masks
-    masks = data['mask'].apply(tuple).unique()
+    column = 'agent_mask' if kwargs.get('agent_view', False) else 'mask'
+    masks = data[column].apply(tuple).unique()
     for mask in masks:
-        samples = data.loc[_select_where(data['mask'], mask)].reset_index(drop=True)  # get samples with that mask
+        samples = data.loc[_select_where(data[column], mask)].reset_index(drop=True)  # get samples with that mask
         clusters = _cluster_effects(samples, mask, verbose=verbose, **kwargs)  # cluster based on effects
 
         # TODO: this code could be improved/optimised, but will do that another time
@@ -152,8 +156,11 @@ def _merge(existing_cluster: pd.DataFrame, new_cluster: pd.DataFrame, verbose=Fa
     # TODO: this code could be improved/optimised, but will do that another time
     epsilon = kwargs.get('init_epsilon', 0.05)
     min_samples = kwargs.get('init_min_samples', 5)
-    X = pd2np(existing_cluster['state'])
-    Y = pd2np(new_cluster['state'])
+
+    column = 'agent_state' if kwargs.get('agent_view', False) else 'state'
+
+    X = pd2np(existing_cluster[column])
+    Y = pd2np(new_cluster[column])
     data = np.concatenate((X, Y))
     labels = DBSCAN(eps=epsilon, min_samples=min_samples).fit_predict(data)
 
@@ -205,7 +212,10 @@ def _cluster_effects(samples: pd.DataFrame, mask: List[int], verbose=False, **kw
     """
     epsilon = kwargs.get('effect_epsilon', 0.05)
     min_samples = kwargs.get('effect_min_samples', 5)
-    data = pd2np(samples['next_state'])  # convert to numpy
+
+    column = 'next_agent_state' if kwargs.get('agent_view', False) else 'next_state'
+
+    data = pd2np(samples[column])  # convert to numpy
     masked_data = data[:, mask]  # cluster only on state variables that changed
 
     db = DBSCAN(eps=epsilon, min_samples=min_samples).fit(masked_data)
@@ -231,7 +241,10 @@ def _cluster_inits(samples: pd.DataFrame, verbose=False, **kwargs) -> List[pd.Da
     """
     epsilon = kwargs.get('init_epsilon', 0.03)
     min_samples = kwargs.get('init_min_samples', 3)
-    return _cluster_data(samples, 'state', epsilon, min_samples, verbose=verbose)
+
+    column = 'agent_state' if kwargs.get('agent_view', False) else 'state'
+
+    return _cluster_data(samples, column, epsilon, min_samples, verbose=verbose)
 
 
 def _cluster_data(samples: pd.DataFrame, column_name: str, epsilon: float, min_samples: int,

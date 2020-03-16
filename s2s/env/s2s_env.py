@@ -6,6 +6,22 @@ from s2s.image import Image
 from s2s.wrappers import ConditionalAction, ConstantLength, ActionExecutable
 
 
+class MultiViewWrapper(gym.Wrapper):
+
+    def __init__(self, env: gym.Env):
+
+        if not isinstance(env.unwrapped, MultiViewEnv):
+            raise ValueError("Environment must inherit from MultiViewEnv")
+        super().__init__(env)
+
+    def step(self, action):
+        state, reward, done, info = super().step(action)
+        env: MultiViewEnv = super().unwrapped
+        agent_obs = env.current_agent_observation()
+        info['agent_view'] = agent_obs
+        return state, reward, done, info
+
+
 class S2SWrapper(gym.Wrapper):
 
     def __init__(self, env: 'S2SEnv', options_per_episode=np.inf):
@@ -57,7 +73,7 @@ class S2SEnv(gym.Env, ABC):
         Return an image for the given states. This method can be overriden to optimise for the fact that there are
          multiple states. If not, it will simply average the results of render_state for each state
         """
-        return Image.merge([self.render_state(state) for state in states])
+        return Image.merge([self.render_state(state, **kwargs) for state in states])
 
     def render_state(self, state: np.ndarray, **kwargs) -> np.ndarray:
         """
@@ -79,3 +95,18 @@ class S2SEnv(gym.Env, ABC):
 
     def describe_option(self, option: int) -> str:
         return 'option-{}'.format(option)
+
+
+class MultiViewEnv(S2SEnv):
+
+    @property
+    @abstractmethod
+    def agent_space(self) -> gym.Space:
+        """
+        The agent space size
+        """
+        pass
+
+    @abstractmethod
+    def current_agent_observation(self):
+        pass

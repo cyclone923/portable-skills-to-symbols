@@ -5,13 +5,13 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
-from s2s.env.s2s_env import S2SWrapper
+from s2s.env.s2s_env import S2SWrapper, MultiViewWrapper
 from s2s.utils import show, run_parallel
 
 __author__ = 'Steve James and George Konidaris'
 
 
-def collect_data(env: S2SWrapper, max_timestep=np.inf, max_episode=np.inf, verbose=False, seed=None, n_jobs=1,
+def collect_data(env: MultiViewWrapper, max_timestep=np.inf, max_episode=np.inf, verbose=False, seed=None, n_jobs=1,
                  **kwargs) -> (
         pd.DataFrame, pd.DataFrame):
     """
@@ -50,7 +50,7 @@ def collect_data(env: S2SWrapper, max_timestep=np.inf, max_episode=np.inf, verbo
     return transition_data, initiation_data
 
 
-def _collect_data(env: S2SWrapper, seed=None, max_timestep=np.inf, max_episode=np.inf, verbose=False,
+def _collect_data(env: MultiViewWrapper, seed=None, max_timestep=np.inf, max_episode=np.inf, verbose=False,
                   episode_offset=0) -> (
         pd.DataFrame, pd.DataFrame):
     """
@@ -68,39 +68,44 @@ def _collect_data(env: S2SWrapper, seed=None, max_timestep=np.inf, max_episode=n
         np.random.seed(seed)
 
     transition_data = pd.DataFrame(
-        columns=['episode', 'state', 'option', 'reward', 'next_state', 'done', 'goal_achieved',  'mask', 'next_options'])
-    initiation_data = pd.DataFrame(columns=['state', 'option', 'can_execute'])
+        columns=['episode', 'state', 'agent_state', 'option', 'reward', 'next_state', 'next_agent_state', 'done',
+                 'goal_achieved', 'mask', 'agent_mask', 'next_options'])
+    initiation_data = pd.DataFrame(columns=['state', 'agent_state', 'option', 'can_execute'])
 
     n_episode = 0
     n_timesteps = 0
     while n_episode < max_episode and n_timesteps < max_timestep:
         show('Running episode {}'.format(n_episode + episode_offset), verbose)
         state = env.reset()
+        agent_state = env.current_agent_observation()
         done = False
         ep_timestep = 0
         while not done and n_timesteps < max_timestep:
             action = env.sample_action()
             next_state, reward, done, info = env.step(action)
+            next_agent_state = info.get('agent_view', None)
             failed = info.get('option_failed', False)
             # timestep only counts if we actually executed an option
             if not failed:
                 n_timesteps += 1
-                mask = np.where(np.array(state) != np.array(next_state))[0]  # check which indices are not equal!
+                # mask = np.where(np.array(state) != np.array(next_state))[0]  # check which indices are not equal!
+                mask = np.where(np.array(state) != np.array(next_state))[0]
+                agent_mask = np.where(np.array(agent_state) != np.array(next_agent_state))[0]
                 next_options = info.get('next_actions', np.array([]))
                 success = info.get('goal_achieved', False)
-                transition_data.loc[len(transition_data)] = [n_episode + episode_offset, state, action,
-                                                             reward, next_state, done, success, mask,
-                                                             next_options]
+                transition_data.loc[len(transition_data)] = [n_episode + episode_offset, state, agent_state, action,
+                                                             reward, next_state, next_agent_state, done, success, mask,
+                                                             agent_mask, next_options]
                 ep_timestep += 1
             if 'current_actions' in info:
                 # the set of options that could or could not be executed
                 for i, label in enumerate(info['current_actions']):
-                    initiation_data.loc[len(initiation_data)] = [state, i, bool(label)]
+                    initiation_data.loc[len(initiation_data)] = [state, agent_state, i, bool(label)]
             else:
                 # just use the information we have
-                initiation_data.loc[len(initiation_data)] = [state, action, not failed]
-
+                initiation_data.loc[len(initiation_data)] = [state, agent_state, action, not failed]
             show('\tStep: {}'.format(ep_timestep), verbose and ep_timestep > 0 and ep_timestep % 50 == 0)
             state = next_state
+            agent_state = next_agent_state
         n_episode += 1
     return transition_data, initiation_data
