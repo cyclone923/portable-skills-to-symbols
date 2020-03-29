@@ -74,13 +74,17 @@ class PrettyPrint:
                                                   abs(effects[0][2]))
             effect = self._propositions_to_str(effects[0][1], end=end)
         else:
-            effect = '(probabilistic '
+            effect = 'probabilistic '
+
+            total_prob = sum(prob for prob, _, _ in effects)  # sometimes total prob is just over 1 because rounding :(
+
             for prob, eff, reward in effects:
+                prob = round(prob / total_prob, 3)  # TODO probably a better way!
                 end = None
                 if self._use_rewards and reward is not None:
                     end = '{} (reward) {:.2f}'.format('increase' if reward >= 0 else 'decrease', abs(reward))
                 effect += indent('\n\t{} ({})'.format(prob, self._propositions_to_str(eff, end)), 3)
-            effect += '\n\t\t\t)\n\t'
+            effect += '\n\t\t\t\n\t'
 
         if self._option_descriptor is None:
             name = self._operator.name
