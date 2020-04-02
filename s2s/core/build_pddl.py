@@ -10,24 +10,32 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import silhouette_score
 
+from gym_multi_treasure_game.envs.multiview_env import MultiViewEnv, View
 from s2s.core.learn_operators import _learn_precondition
 from s2s.estimators.estimators import StateDensityEstimator, PreconditionClassifier
 from s2s.estimators.kde import KernelDensityEstimator
 from s2s.core.learned_operator import LearnedOperator
-from s2s.pddl.operator import Operator
+from s2s.pddl.pddl_operator import PDDLOperator
 from s2s.pddl.proposition import Proposition
 from s2s.pddl.unique_list import UniquePredicateList
-from s2s.utils import show, pd2np, run_parallel, range_without
+from s2s.utils import show, pd2np, run_parallel, range_without, save, load, get_column_by_view
 
 __author__ = 'Steve James and George Konidaris'
 
 
-def _overlapping_dists(x: KernelDensityEstimator, y: KernelDensityEstimator) -> bool:
+def _overlapping_dists(x: StateDensityEstimator, y: StateDensityEstimator) -> bool:
     """
     A measure of similarity from the original paper that compares means, mins and maxes.
     :param x: the first distribution
     :param y: the second distribution
     """
+
+    if x.is_noop and y.is_noop:
+        return True
+
+    if x.is_noop != y.is_noop:
+        return False
+
     if set(x.mask) != set(y.mask):
         return False
 
@@ -79,8 +87,9 @@ def find_goal_symbols(factors: List[List[int]], vocabulary: Iterable[Proposition
     :return the probability of the symbols modelling the goal, and the list of symbols themselves
     """
     # the goal states
-    positive_samples = pd2np(transition_data.loc[transition_data['goal_achieved'] == True]['next_state'])
-    negative_samples = pd2np(transition_data.loc[transition_data['goal_achieved'] == False]['next_state'])
+    column = get_column_by_view('next_state', kwargs)
+    positive_samples = pd2np(transition_data.loc[transition_data['goal_achieved'] == True][column])
+    negative_samples = pd2np(transition_data.loc[transition_data['goal_achieved'] == False][column])
 
     # fit a classifier to the data
     svm = _learn_precondition(positive_samples, negative_samples, verbose=verbose, **kwargs)
@@ -116,9 +125,10 @@ def find_goal_symbols(factors: List[List[int]], vocabulary: Iterable[Proposition
 
 
 def _generate_goal_symbols(transition_data: pd.DataFrame, factors: List[List[int]],
-                           verbose=False, **kwargs) -> List[KernelDensityEstimator]:
+                           verbose=False, **kwargs) -> List[StateDensityEstimator]:
     show("Generating goal symbols...", verbose)
-    goal_states = pd2np(transition_data.loc[transition_data['done'] == True]['next_state'])
+    column = get_column_by_view('next_state', kwargs)
+    goal_states = pd2np(transition_data.loc[transition_data['done'] == True][column])
     return _generate_symbols(goal_states, factors, verbose=verbose, **kwargs)
 
 
@@ -127,9 +137,10 @@ def _generate_start_symbols(transition_data: pd.DataFrame, factors: List[List[in
     show("Generating start state symbols...", verbose)
 
     # group by episode and get the first state from each
-    initial_states = pd2np(transition_data.groupby('episode').nth(0)['state'])
+    column = get_column_by_view('state', kwargs)
+    initial_states = pd2np(transition_data.groupby('episode').nth(0)[column])
 
-    return _generate_symbols(initial_states, factors, verbose=verbose, **kwargs)
+    return reversed(_generate_symbols(initial_states, factors, verbose=verbose, **kwargs))
 
 
 def _generate_symbols(states: np.ndarray, total_factors: List[List[int]], verbose=False, **kwargs) \
@@ -151,8 +162,8 @@ def _generate_symbols(states: np.ndarray, total_factors: List[List[int]], verbos
     return symbols
 
 
-def build_pddl(env: gym.Env, transition_data: pd.DataFrame, operators: List[LearnedOperator], verbose=False,
-               **kwargs) -> Tuple[List[List[int]], UniquePredicateList, List[Operator]]:
+def build_pddl(env: MultiViewEnv, transition_data: pd.DataFrame, operators: List[LearnedOperator], verbose=False,
+               **kwargs) -> Tuple[List[List[int]], UniquePredicateList, List[PDDLOperator]]:
     """
     Given the learned preconditions and effects, generate a valid PDDL representation
     :param env: teh domain
@@ -161,12 +172,12 @@ def build_pddl(env: gym.Env, transition_data: pd.DataFrame, operators: List[Lear
     :param verbose: the verbosity level
     :return: the factors, predicates and PDDL operators
     """
+    n_jobs = kwargs.get('n_jobs', 1)
     dist_comparator = kwargs.get('dist_comparator', _overlapping_dists)
     vocabulary = UniquePredicateList(dist_comparator)
     # Factorise the state space: see JAIR paper for more
     show("Factorising state space...", verbose)
-    n_dims = env.observation_space.shape[-1]
-    factors = _factorise(operators, n_dims, verbose=verbose)
+    factors = _factorise(operators, env.n_dims(kwargs.get('view', View.PROBLEM)), verbose=verbose)
 
     show("Final factors:\n\n{}".format(factors), verbose)
     #
@@ -185,14 +196,15 @@ def build_pddl(env: gym.Env, transition_data: pd.DataFrame, operators: List[Lear
     #     vocabulary.append(new_dist, goal_predicate=True)
     # show("Goal condition generated {} propositions".format(len(vocabulary) - n_start_propositions), verbose)
 
-    n_jobs = kwargs.get('n_jobs', 1)
-    # do it in parallel!
     show("Running on {} CPUs".format(n_jobs), verbose)
 
     show("Generating propositions...", verbose)
     # get propositions directly from effects
     operator_predicates = _generate_vocabulary(vocabulary, operators, factors, verbose=verbose, n_jobs=n_jobs)
     show("Total propositions: {}".format(len(vocabulary)), verbose)
+
+    save((factors, vocabulary, operator_predicates))
+    (factors, vocabulary, operator_predicates) = load()
 
     show("Generating full PDDL...", verbose)
 
@@ -282,7 +294,7 @@ def _probability_in_precondition(estimators: Iterable[Proposition], precondition
 def _build_pddl_operator(env: gym.Env, precondition_factors: List[List[int]], operator: LearnedOperator,
                          vocabulary: UniquePredicateList,
                          operator_predicates: Dict[Tuple[LearnedOperator, int], List[Proposition]],
-                         verbose=False, **kwargs) -> List[Operator]:
+                         verbose=False, **kwargs) -> List[PDDLOperator]:
     """
     Generate the PDDL representation for the given operator. There may be more than one due to disjunctive preconditions
     :param env: the domain
@@ -329,7 +341,7 @@ def _build_pddl_operator(env: gym.Env, precondition_factors: List[List[int]], op
             found = True
             show("\tFound a match!", verbose)
             precondition_prob = round(precondition_prob, 3)  # make look nice
-            pddl_operator = Operator(operator)
+            pddl_operator = PDDLOperator(operator)
             pddl_operator.add_preconditions(candidates)
 
             remaining_probability = 1
@@ -410,7 +422,7 @@ def _generate_vocabulary_parallel(operators: List[LearnedOperator], factors: Lis
             predicates = list()
             mask = effect.mask
             factor_list = _extract_factors(mask, factors)
-            if len(factor_list) == 1:
+            if len(factor_list) <= 1:
                 # Independent. Go with it as-is.
                 predicate = vocabulary.append(effect)
                 predicates.append(predicate)

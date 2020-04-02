@@ -81,6 +81,14 @@ class StateDensityEstimator(ABC):
         """
         pass
 
+    @property
+    @abstractmethod
+    def is_noop(self):
+        """
+        Returns whether the effect represents a no-op
+        """
+        pass
+
 
 class RewardRegressor(ABC):
     """

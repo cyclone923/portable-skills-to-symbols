@@ -3,6 +3,8 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import KNeighborsClassifier
 
+from gym_multi_treasure_game.envs.multiview_env import View, MultiViewEnv
+from s2s.env.s2s_env import S2SEnv
 from s2s.estimators.estimators import RewardRegressor
 from s2s.estimators.kde import KernelDensityEstimator
 
@@ -51,19 +53,20 @@ class SimpleRegressor(RewardRegressor):
         label = self._knn.predict(state.reshape(1, -1))[0]
         return self._means[label]
 
-    def expected_reward(self, env: gym.Env, state_distribution: KernelDensityEstimator, **kwargs) -> float:
+    def expected_reward(self, env: MultiViewEnv, state_distribution: KernelDensityEstimator, **kwargs) -> float:
         """
         Predict the reward for executing the (implicit) option in the given state distribution
         :param env: the domain
         :param state_distribution: the current state distribution
         :return: the predicted reward
         """
-
+        view = kwargs.get('view', View.PROBLEM)
         n_samples = kwargs.get('n_samples_reward_prediction', 100)
         states = state_distribution.sample(n_samples)
 
         # missing vars in mask are simply zeroed out
-        data = np.zeros(shape=(n_samples, env.observation_space.shape[-1]))
+        n_dims = env.observation_space.shape[-1] if view == View.PROBLEM else len(env.agent_space.nvec)
+        data = np.zeros(shape=(n_samples, n_dims))
         data[:, state_distribution.mask] = states
         labels = self._knn.predict(data)
         return np.mean([self._means[label] for label in labels])

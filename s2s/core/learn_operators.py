@@ -7,6 +7,7 @@ import gym
 import numpy as np
 import pandas as pd
 
+from gym_multi_treasure_game.envs.multiview_env import View
 from s2s.core.feature_selection import _compute_precondition_mask
 from s2s.estimators.estimators import RewardRegressor, StateDensityEstimator, PreconditionClassifier
 from s2s.estimators.kde import KernelDensityEstimator
@@ -119,6 +120,9 @@ def learn_preconditions(env: gym.Env, init_data: pd.DataFrame, partitioned_optio
 def _learn_preconditions(init_data: pd.DataFrame, partitioned_options: List[PartitionedOption],
                          all_partitions: Dict[int, List[PartitionedOption]],
                          verbose=False, **kwargs) -> Dict[Tuple[int, int], PreconditionClassifier]:
+
+    state_column = 'state' if kwargs.get('view', View.PROBLEM) == View.PROBLEM else 'agent_state'
+
     preconditions = dict()
     prev_option = None
     negative_data = None
@@ -127,7 +131,7 @@ def _learn_preconditions(init_data: pd.DataFrame, partitioned_options: List[Part
         if option != prev_option:
             # no need to reload if no change
             negative_data = pd2np(init_data.loc[(init_data['option'] == option) &
-                                                (init_data['can_execute'] == False)]['state'])
+                                                (init_data['can_execute'] == False)][state_column])
         # must do equals False because Pandas!
 
         show('Learning precondition for option {}, partition {}'.format(option, partition.partition), verbose)
@@ -136,7 +140,10 @@ def _learn_preconditions(init_data: pd.DataFrame, partitioned_options: List[Part
             negative_samples = _augment_negative(negative_data, partition.partition, all_partitions[option])
         else:
             negative_samples = negative_data
+
+        # this property gets either agent or problem-space states, whichever was used to partition in the first place
         positive_samples = partition.states
+
         show("Calculating mask for option {}, partition {} ...".format(partition.option, partition.partition), verbose)
         precondition = _learn_precondition(positive_samples, negative_samples,
                                            verbose=verbose, **kwargs)
@@ -159,8 +166,9 @@ def _augment_negative(negative_data: np.ndarray, current_partition: int,
     else:
         negatives = [negative_data]
     for partition in partitions:
-        if partition.partition == current_partition:
-            continue  # ignore the current one
+        if partitions[current_partition].is_similar(partition.partition):
+            continue  # ignore those partitions that look similar in agent space, since this will break the precondition
+        # this property gets either agent or problem-space states, whichever was used to partition in the first place
         negatives.append(partition.states)  # add the others as negatives
     return np.vstack(negatives)
 

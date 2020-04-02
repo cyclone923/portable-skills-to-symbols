@@ -12,6 +12,11 @@ class Proposition:
         self._name = name
         self._kde = kde
         self.sign = 1  # whether true or the negation of the predicate
+        self._noop = kde is not None and kde.is_noop
+
+    @property
+    def is_noop(self):
+        return self._noop
 
     @property
     def estimator(self) -> StateDensityEstimator:
@@ -28,6 +33,7 @@ class Proposition:
     def sample(self, n_samples):
         return self._kde.sample(n_samples)
 
+    @property
     def is_grounded(self) -> bool:
         return False
 

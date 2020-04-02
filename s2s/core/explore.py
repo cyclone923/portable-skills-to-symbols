@@ -1,17 +1,20 @@
-import multiprocessing
 import random
-from functools import partial
 
+import multiprocessing
 import numpy as np
 import pandas as pd
+from functools import partial
+from gym import Wrapper
 
-from s2s.env.s2s_env import S2SWrapper, MultiViewWrapper
-from s2s.utils import show, run_parallel
+from s2s.core.data.multiviewframe import TransitionFrame
+from s2s.env.envs import MultiTreasureGame
+from s2s.env.s2s_env import S2SWrapper
+from s2s.utils import show, run_parallel, save
 
 __author__ = 'Steve James and George Konidaris'
 
 
-def collect_data(env: MultiViewWrapper, max_timestep=np.inf, max_episode=np.inf, verbose=False, seed=None, n_jobs=1,
+def collect_data(env: S2SWrapper, max_timestep=np.inf, max_episode=np.inf, verbose=False, seed=None, n_jobs=1,
                  **kwargs) -> (
         pd.DataFrame, pd.DataFrame):
     """
@@ -41,7 +44,7 @@ def collect_data(env: MultiViewWrapper, max_timestep=np.inf, max_episode=np.inf,
 
     functions = [
         partial(_collect_data, env, np.random.randint(0, 1000000), max_timestep, max_episode, verbose,
-                int(max_episode * i))
+                int(max_episode * i), **kwargs)
         for i in range(n_jobs)]
 
     results = run_parallel(functions)
@@ -50,8 +53,8 @@ def collect_data(env: MultiViewWrapper, max_timestep=np.inf, max_episode=np.inf,
     return transition_data, initiation_data
 
 
-def _collect_data(env: MultiViewWrapper, seed=None, max_timestep=np.inf, max_episode=np.inf, verbose=False,
-                  episode_offset=0) -> (
+def _collect_data(env: S2SWrapper, seed=None, max_timestep=np.inf, max_episode=np.inf, verbose=False,
+                  episode_offset=0, **kwargs) -> (
         pd.DataFrame, pd.DataFrame):
     """
     Collect data from the environment through uniform random exploration
@@ -76,14 +79,12 @@ def _collect_data(env: MultiViewWrapper, seed=None, max_timestep=np.inf, max_epi
     n_timesteps = 0
     while n_episode < max_episode and n_timesteps < max_timestep:
         show('Running episode {}'.format(n_episode + episode_offset), verbose)
-        state = env.reset()
-        agent_state = env.current_agent_observation()
+        state, agent_state = env.reset()
         done = False
         ep_timestep = 0
         while not done and n_timesteps < max_timestep:
             action = env.sample_action()
-            next_state, reward, done, info = env.step(action)
-            next_agent_state = info.get('agent_view', None)
+            next_state, next_agent_state, reward, done, info = env.step(action)
             failed = info.get('option_failed', False)
             # timestep only counts if we actually executed an option
             if not failed:

@@ -1,3 +1,5 @@
+import time
+
 import multiprocessing
 import os
 import shutil
@@ -10,6 +12,37 @@ import pickle
 import textwrap
 
 __author__ = 'Steve James and George Konidaris'
+
+from gym_multi_treasure_game.envs.multiview_env import View
+
+
+def if_not_none(value: Any, default_value: Any) -> Any:
+    """
+    If the value is not none, returns it. Otherwise, returns the default value
+    :param value: teh value to check
+    :param default_value: the default value
+    """
+    return value if value is None else default_value
+
+
+def get_column_by_view(default_column: str, params: dict) -> str:
+    """
+    Returns the correct column depending on whether we have an agent or problem-spoecific view
+    :param default_column: the column's namex
+    :param params: the kwargs
+    """
+    if params.get('view', View.PROBLEM) == View.PROBLEM:
+        return default_column
+    if default_column == 'next_state':
+        return 'next_agent_state'
+    return 'agent_{}'.format(default_column)
+
+
+def now():
+    """
+    Return the current time in milliseconds
+    """
+    return int(round(time.time() * 1000))
 
 
 def indent(x: Any, count: int = 1) -> str:
@@ -25,7 +58,7 @@ def select_rows(data: pd.DataFrame, indices: Iterable, reset_index=True) -> pd.D
     """
     Select a set of rows from a data frame
     :param data: the data frame
-    :param indices: teh row indices
+    :param indices: the row indices
     :param reset_index: whether the indices should be reset
     :return: the subframe
     """""

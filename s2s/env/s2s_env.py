@@ -1,43 +1,32 @@
-from abc import ABC, abstractmethod
-import numpy as np
 import gym
+import numpy as np
+from abc import ABC, abstractmethod
 
+from gym_multi_treasure_game.envs.multiview_env import MultiViewEnv, View
 from s2s.image import Image
 from s2s.wrappers import ConditionalAction, ConstantLength, ActionExecutable
-
-
-class MultiViewWrapper(gym.Wrapper):
-
-    def __init__(self, env: gym.Env):
-
-        if not isinstance(env.unwrapped, MultiViewEnv):
-            raise ValueError("Environment must inherit from MultiViewEnv")
-        super().__init__(env)
-
-    def step(self, action):
-        state, reward, done, info = super().step(action)
-        env: MultiViewEnv = super().unwrapped
-        agent_obs = env.current_agent_observation()
-        info['agent_view'] = agent_obs
-        return state, reward, done, info
 
 
 class S2SWrapper(gym.Wrapper):
 
     def __init__(self, env: 'S2SEnv', options_per_episode=np.inf):
+
+        if not isinstance(env.unwrapped, MultiViewEnv):
+            raise ValueError("Environment must inherit from MultiViewEnv")
+
         env = ConditionalAction(env)  # support actions that are not executable everywhere
         env = ConstantLength(env, options_per_episode)  # restrict episode lengths
         env = ActionExecutable(env)  # determine at each state which actions/options are executable
         super().__init__(env)
 
     def step(self, action):
-        state, reward, done, info = super().step(action)
+        state, observation, reward, done, info = super().step(action)
         if done and not info.get('TimeLimit.truncated', False):
             info['goal_achieved'] = True
         if info.get('force_continue', False):
             done = False  # force the domain to continue on
 
-        return state, reward, done, info
+        return state, observation, reward, done, info
 
 
 class S2SEnv(gym.Env, ABC):
@@ -79,8 +68,10 @@ class S2SEnv(gym.Env, ABC):
         """
         Return an image of the given state. Where state variables are missing, specify with np.nan
         """
-        nan_mask = np.where(np.isnan(state))
-        state[nan_mask] = self.observation_space.sample()[nan_mask]
+        if kwargs.get('randomly_sample', True):
+            nan_mask = np.where(np.isnan(state))
+            space = self.observation_space if kwargs.get('view', View.PROBLEM) == View.PROBLEM else self.agent_space
+            state[nan_mask] = space.sample()[nan_mask]
         return self._render_state(state, **kwargs)
 
     def _render_state(self, state: np.ndarray, **kwargs) -> np.ndarray:
@@ -95,18 +86,3 @@ class S2SEnv(gym.Env, ABC):
 
     def describe_option(self, option: int) -> str:
         return 'option-{}'.format(option)
-
-
-class MultiViewEnv(S2SEnv):
-
-    @property
-    @abstractmethod
-    def agent_space(self) -> gym.Space:
-        """
-        The agent space size
-        """
-        pass
-
-    @abstractmethod
-    def current_agent_observation(self):
-        pass

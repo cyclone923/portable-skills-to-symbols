@@ -15,7 +15,6 @@ class KernelDensityEstimator(StateDensityEstimator):
     A density estimator that models a distribution over low-level states
     """
 
-
     def __init__(self, mask: List[int]):
         """
         Create a new estimator
@@ -23,6 +22,7 @@ class KernelDensityEstimator(StateDensityEstimator):
         """
         self._mask = mask
         self._kde: KernelDensity = None
+        self._no_effect = False
 
     def fit(self, X: np.ndarray, verbose=False, **kwargs) -> None:
         """
@@ -34,6 +34,12 @@ class KernelDensityEstimator(StateDensityEstimator):
             data = X  # already been masked
         else:
             data = X[:, self.mask]
+
+        if data.shape[1] == 0:
+            # NO EFFECT!
+            self._no_effect = True
+            return
+
         bandwidth_range = kwargs.get('effect_bandwidth_range', np.arange(0.001, 0.1, 0.001))
         params = {'bandwidth': bandwidth_range}
         grid = GridSearchCV(KernelDensity(kernel='gaussian'), params, cv=3)
@@ -54,6 +60,8 @@ class KernelDensityEstimator(StateDensityEstimator):
         :param n_samples: the number of samples
         :return an array of size [n_samples, len(mask)]
         """
+        if self._no_effect:
+            return np.empty(shape=(n_samples, 0))
         data = self._kde.sample(n_samples)
         if len(data.shape) == 1:  # ensure always shape of (N X D)
             return np.reshape(data, (data.shape[0], 1))
@@ -67,7 +75,14 @@ class KernelDensityEstimator(StateDensityEstimator):
         distribution equal to p with those variables marginalized out.
         """
 
-        variable_list = sorted(variable_list) # make sure it's always sorted to prevent bugs!
+        # TODO check this:
+        # if empty, nothing to integrate out
+        if self._no_effect:
+            kde = KernelDensityEstimator(mask=list())
+            kde._no_effect = True
+            return kde
+
+        variable_list = sorted(variable_list)  # make sure it's always sorted to prevent bugs!
 
         new_vars = list()
         new_indices = list()
@@ -83,3 +98,7 @@ class KernelDensityEstimator(StateDensityEstimator):
         kwargs['masked'] = True  # the data has already been masked
         kde.fit(new_samples, **kwargs)
         return kde
+
+    @property
+    def is_noop(self):
+        return self._no_effect

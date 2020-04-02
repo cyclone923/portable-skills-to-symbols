@@ -17,12 +17,12 @@ class MaxLength(gym.Wrapper):
 
     def step(self, action):
         assert self._elapsed_steps is not None, "Cannot call env.step() before calling reset()"
-        observation, reward, done, info = super().step(action)
+        observation, agent_obs, reward, done, info = super().step(action)  # TODO FIX: Assuming we're getting agent view
         self._elapsed_steps += 1
         if self._elapsed_steps >= self._max_episode_steps:
             info['TimeLimit.truncated'] = not done
             done = True
-        return observation, reward, done, info
+        return observation, agent_obs, reward, done, info
 
     def reset(self, **kwargs):
         self._elapsed_steps = 0
@@ -36,10 +36,10 @@ class ConstantLength(MaxLength):
     """
 
     def step(self, action):
-        observation, reward, done, info = super().step(action)
+        observation, agent_obs, reward, done, info = super().step(action)  # TODO FIX: Assuming we're getting agent view
         if self._elapsed_steps != self._max_episode_steps:
             info['force_continue'] = True  # if it's not exactly this, keep going!!
-        return observation, reward, done, info
+        return observation, agent_obs, reward, done, info
 
 
 class ConditionalAction(gym.Wrapper):
@@ -52,9 +52,9 @@ class ConditionalAction(gym.Wrapper):
 
     def step(self, action):
         can_execute = self.env.can_execute(action)
-        observation, reward, done, info = super().step(action)
+        observation, agent_obs, reward, done, info = super().step(action)  # TODO FIX: Assuming we're getting agent view
         info['option_failed'] = not can_execute
-        return observation, reward, done, info
+        return observation, agent_obs, reward, done, info
 
 
 class ActionExecutable(gym.Wrapper):
@@ -65,7 +65,7 @@ class ActionExecutable(gym.Wrapper):
 
     def step(self, action):
         current_actions = self.env.available_mask
-        observation, reward, done, info = super().step(action)
+        observation, agent_obs, reward, done, info = super().step(action)  # TODO FIX: Assuming we're getting agent view
         info['current_actions'] = current_actions
         info['next_actions'] = self.env.available_mask
-        return observation, reward, done, info
+        return observation, agent_obs, reward, done, info

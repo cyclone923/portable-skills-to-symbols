@@ -1,3 +1,4 @@
+import copy
 from collections import defaultdict, ChainMap
 from functools import partial
 from typing import List, Dict, Tuple, Iterable
@@ -8,9 +9,11 @@ import pandas as pd
 from gym.spaces import Discrete
 from sklearn.cluster import DBSCAN
 
+from gym_multi_treasure_game.envs.multiview_env import View
 from s2s.core.partitioned_option import PartitionedOption
+from s2s.index_link import IndexLink
 from s2s.union_find import UnionFind
-from s2s.utils import show, pd2np, select_rows, run_parallel
+from s2s.utils import show, pd2np, select_rows, run_parallel, get_column_by_view
 
 __author__ = 'Steve James and George Konidaris'
 
@@ -72,7 +75,7 @@ def _is_overlap_init(A: pd.DataFrame, B: pd.DataFrame, **kwargs):
     epsilon = kwargs.get('init_epsilon', 0.05)
     min_samples = kwargs.get('init_min_samples', 5)
 
-    column = 'agent_state' if kwargs.get('agent_view', False) else 'state'
+    column = get_column_by_view('state', kwargs)
 
     X = pd2np(A[column])
     Y = pd2np(B[column])
@@ -90,10 +93,12 @@ def _partition_option(option: int, data: pd.DataFrame, verbose=False, **kwargs) 
     :return: a list of partitioned options
     """
 
+    view = kwargs.get('view', View.PROBLEM)
+
     data = data.reset_index(drop=True)  # reset the indices since the data is a subset of the full transition data
     partition_effects = list()
     # extract the masks
-    column = 'agent_mask' if kwargs.get('agent_view', False) else 'mask'
+    column = 'agent_mask' if view == View.AGENT else 'mask'
     masks = data[column].apply(tuple).unique()
     for mask in masks:
         samples = data.loc[_select_where(data[column], mask)].reset_index(drop=True)  # get samples with that mask
@@ -131,14 +136,34 @@ def _partition_option(option: int, data: pd.DataFrame, verbose=False, **kwargs) 
     # we now have a set of distinct clusters (maximally split), but they may be over-partitioned.
     # Check overlap in initiation sets and merge into probabilistic option if so
 
+    look_similar = IndexLink()
     union_find = UnionFind(range(len(partition_effects)))
     for i in range(len(partition_effects) - 1):
         for j in range(i + 1, len(partition_effects)):
             show("Checking clusters {} and {}".format(i, j), verbose)
             if _is_overlap_init(partition_effects[i], partition_effects[j], verbose=verbose, **kwargs):
-                # add to union find
-                show("\tMerging clusters {} and {}".format(i, j), verbose)
-                union_find.merge(i, j)  # these will be merged
+
+                stochastic = True
+                # the init sets look the same. But if it's in agent space, it may be an illusion, so check it
+                if view == View.AGENT:
+                    temp_kwargs = copy.deepcopy(kwargs)
+                    # make the view problem-space
+                    temp_kwargs['view'] = View.PROBLEM
+                    if not _is_overlap_init(partition_effects[i], partition_effects[j], verbose=verbose, **temp_kwargs):
+                        # it was an illusion!
+                        stochastic = False
+                if stochastic:
+                    # add to union find
+                    show("\tMerging clusters {} and {}".format(i, j), verbose)
+                    union_find.merge(i, j)  # these will be merged
+                else:
+                    # actually a deterministic transition! Do not augment negative samples when partitioning
+                    show("\tClusters {} and {} look stochastic in agent space, but are not".format(i, j), verbose)
+                    look_similar.add(i, j)
+
+    # take the clusters that look like they have the same inits (but don't) and account for the fact that they may be
+    # merged (unlikely, but could happen)
+    look_similar.reduce(union_find)
 
     merged_clusters = defaultdict(list)  # groups of merged partitions
     for cluster_idx in union_find:
@@ -149,7 +174,7 @@ def _partition_option(option: int, data: pd.DataFrame, verbose=False, **kwargs) 
     partitioned_options = list()
     for i, (_, partitions) in enumerate(merged_clusters.items()):
         combined_data = pd.concat(partitions, ignore_index=True)
-        partitioned_options.append(PartitionedOption(option, i, combined_data, partitions))
+        partitioned_options.append(PartitionedOption(option, i, combined_data, partitions, view, look_similar[i]))
 
     show('Total partitioned options: {}'.format(len(partitioned_options)), verbose)
 
@@ -171,7 +196,9 @@ def _merge(existing_cluster: pd.DataFrame, new_cluster: pd.DataFrame, verbose=Fa
     epsilon = kwargs.get('init_epsilon', 0.05)
     min_samples = kwargs.get('init_min_samples', 5)
 
-    column = 'agent_state' if kwargs.get('agent_view', False) else 'state'
+    column = 'agent_state' if kwargs.get('view', View.PROBLEM) == View.AGENT else 'state'
+    column = 'state'  # we check teh problem space information regardless because because if we did not (and the
+    # option was not in fact stochastic), we'd have to correct it later on. So just do it here
 
     X = pd2np(existing_cluster[column])
     Y = pd2np(new_cluster[column])
@@ -227,13 +254,19 @@ def _cluster_effects(samples: pd.DataFrame, mask: List[int], verbose=False, **kw
     epsilon = kwargs.get('effect_epsilon', 0.05)
     min_samples = kwargs.get('effect_min_samples', 5)
 
-    column = 'next_agent_state' if kwargs.get('agent_view', False) else 'next_state'
+    column = 'next_agent_state' if kwargs.get('view', View.PROBLEM) == View.AGENT else 'next_state'
 
     data = pd2np(samples[column])  # convert to numpy
     masked_data = data[:, mask]  # cluster only on state variables that changed
 
-    db = DBSCAN(eps=epsilon, min_samples=min_samples).fit(masked_data)
-    labels = db.labels_
+    if len(mask) == 0:
+        # we're just going to assume that everything is one class!
+        labels = np.zeros(shape=(len(masked_data),))
+        if len(masked_data) < min_samples:
+            labels += -1
+    else:
+        db = DBSCAN(eps=epsilon, min_samples=min_samples).fit(masked_data)
+        labels = db.labels_
     show("Found {}/{} noisy samples".format((labels == -1).sum(), len(labels)), verbose)
     clusters = list()
     for label in set(labels):
@@ -256,7 +289,7 @@ def _cluster_inits(samples: pd.DataFrame, verbose=False, **kwargs) -> List[pd.Da
     epsilon = kwargs.get('init_epsilon', 0.03)
     min_samples = kwargs.get('init_min_samples', 3)
 
-    column = 'agent_state' if kwargs.get('agent_view', False) else 'state'
+    column = 'agent_state' if kwargs.get('view', View.PROBLEM) == View.AGENT else 'state'
 
     return _cluster_data(samples, column, epsilon, min_samples, verbose=verbose)
 
