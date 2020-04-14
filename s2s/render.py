@@ -5,16 +5,16 @@ from typing import List, Dict, Iterable, Tuple
 import numpy as np
 import pandas as pd
 
-from gym_multi_treasure_game.envs.multiview_env import View
+from gym_multi_treasure_game.envs.multiview_env import View, MultiViewEnv
 from s2s.env.s2s_env import S2SEnv
 from s2s.estimators.estimators import PreconditionClassifier
 from s2s.image import Image
 from s2s.core.partitioned_option import PartitionedOption
-from s2s.pddl.proposition import Proposition
+from s2s.pddl.pddl import Proposition
 from s2s.utils import show, make_dir, make_path, pd2np, select_rows
 
 
-def visualise_symbols(directory: str, env: S2SEnv, symbols: Iterable[Proposition], verbose=False, **kwargs) -> None:
+def visualise_symbols(directory: str, env: MultiViewEnv, symbols: Iterable[Proposition], verbose=False, **kwargs) -> None:
     """
     Visualise a set symbols
     :param directory: the directory to save them to
@@ -25,7 +25,7 @@ def visualise_symbols(directory: str, env: S2SEnv, symbols: Iterable[Proposition
 
     view = kwargs.get('view', View.PROBLEM)
 
-    n_dims = env.observation_space.shape[-1] if view == View.PROBLEM else len(env.agent_space.nvec)
+    n_dims = env.n_dims(view)
 
     n_samples = 100
     make_dir(directory)  # make directory if not exists
@@ -37,7 +37,11 @@ def visualise_symbols(directory: str, env: S2SEnv, symbols: Iterable[Proposition
             im = kwargs.get('render')(samples)
         else:
             im = Image.merge([env.render_state(state, agent_alpha=0.5, view=view) for state in samples])
-        filename = '{}_{}.bmp'.format(symbol, symbol.mask)
+
+        if kwargs.get('short_name', False):
+            filename = '{}.bmp'.format(symbol)
+        else:
+            filename = '{}_{}.bmp'.format(symbol, symbol.mask)
         Image.save(im, make_path(directory, filename), mode='RGB')
 
 

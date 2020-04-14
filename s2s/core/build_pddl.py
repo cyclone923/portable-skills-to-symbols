@@ -16,7 +16,7 @@ from s2s.estimators.estimators import StateDensityEstimator, PreconditionClassif
 from s2s.estimators.kde import KernelDensityEstimator
 from s2s.core.learned_operator import LearnedOperator
 from s2s.pddl.pddl_operator import PDDLOperator
-from s2s.pddl.proposition import Proposition
+from s2s.pddl.pddl import Proposition
 from s2s.pddl.unique_list import UniquePredicateList
 from s2s.utils import show, pd2np, run_parallel, range_without, save, load, get_column_by_view
 
@@ -86,6 +86,7 @@ def find_goal_symbols(factors: List[List[int]], vocabulary: Iterable[Proposition
     :param verbose: the verbosity level
     :return the probability of the symbols modelling the goal, and the list of symbols themselves
     """
+    show("Searching for goal symbols", verbose)
     # the goal states
     column = get_column_by_view('next_state', kwargs)
     positive_samples = pd2np(transition_data.loc[transition_data['goal_achieved'] == True][column])

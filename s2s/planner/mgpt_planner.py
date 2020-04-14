@@ -180,7 +180,8 @@ class mGPT:
                 return False, 'Timeout!'
         finally:
             os.remove(temp_name)
-            os.remove('last_id')  # created by the planner and mdpsim
+            if exists('last_id'):
+                os.remove('last_id')  # created by the planner and mdpsim
             if p:
                 p.terminate()
             if p2:

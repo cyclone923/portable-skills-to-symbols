@@ -12,7 +12,7 @@ from s2s.core.partition import partition_options
 from s2s.env.s2s_env import S2SEnv, S2SWrapper
 from s2s.pddl.domain_description import PDDLDomain
 from s2s.pddl.problem_description import PDDLProblem
-from s2s.pddl.proposition import Proposition
+from s2s.pddl.pddl import Proposition
 from s2s.render import visualise_partitions, visualise_symbols
 from s2s.utils import save, make_dir, show, load
 

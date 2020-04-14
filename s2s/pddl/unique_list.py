@@ -5,7 +5,7 @@ from s2s.estimators.kde import KernelDensityEstimator
 
 __author__ = 'Steve James and George Konidaris'
 
-from s2s.pddl.proposition import Proposition
+from s2s.pddl.pddl import Proposition
 
 
 class UniquePredicateList:

@@ -61,6 +61,10 @@ class PartitionedOption:
         return self._partition
 
     @property
+    def view(self):
+        return self._view
+
+    @property
     def states(self):
         if self._view == View.PROBLEM:
             return self.problem_states

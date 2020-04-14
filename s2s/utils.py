@@ -22,7 +22,7 @@ def if_not_none(value: Any, default_value: Any) -> Any:
     :param value: teh value to check
     :param default_value: the default value
     """
-    return value if value is None else default_value
+    return value if value is not None else default_value
 
 
 def get_column_by_view(default_column: str, params: dict) -> str:

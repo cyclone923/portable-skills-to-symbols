@@ -1,7 +1,7 @@
 from typing import List
 
 from s2s.core.learned_operator import LearnedOperator
-from s2s.pddl.proposition import Proposition
+from s2s.pddl.pddl import Proposition, Clause, Probabilistic, RewardPredicate
 from s2s.utils import indent
 
 
@@ -48,10 +48,12 @@ class PDDLOperator:
     def __str__(self):
         return self.pretty_print()
 
-    def pretty_print(self, index=None, probabilistic=True, use_rewards=True, option_descriptor=None):
+    def pretty_print(self, index=None, option_descriptor=None, **kwargs):
         """
         Print everything out nicely
         """
+        probabilistic = kwargs.get('probabilistic', True)
+        use_rewards = kwargs.get('use_rewards', True)
         return str(_PrettyPrint(self, index, probabilistic, use_rewards, option_descriptor))
 
 
@@ -66,32 +68,26 @@ class _PrettyPrint:
         self._index = index
 
     def __str__(self):
-        precondition = self._propositions_to_str(self._operator.preconditions)
 
         if self._probabilistic:
             effects = self._operator.effects
         else:
             effects = [max(self._operator.effects, key=lambda x: x[0])]  # get most probable
 
-        if len(effects) == 1:
-            end = None
-            if self._use_rewards and effects[0][2] is not None:
-                end = '{} (reward) {:.2f}'.format('increase' if effects[0][2] >= 0 else 'decrease',
-                                                  abs(effects[0][2]))
-            effect = self._propositions_to_str(effects[0][1], end=end)
+        precondition = Clause(self._operator.preconditions)
+
+        effect = Probabilistic()
+        for prob, eff, reward in effects:
+            if self._use_rewards and reward is not None:
+                clause = Clause(eff + [RewardPredicate(reward)])  # add the reward
+            else:
+                clause = Clause(eff)
+            effect.add(clause, prob)
+
+        if len(effects) > 1:
+            effect = '\n' + indent(str(effect), 2)
         else:
-            effect = 'probabilistic '
-
-            total_prob = sum(prob for prob, _, _ in effects)  # sometimes total prob is just over 1 because rounding :(
-
-            for prob, eff, reward in effects:
-
-                prob = round(prob / total_prob, 3)  # TODO probably a better way!
-                end = None
-                if self._use_rewards and reward is not None:
-                    end = '{} (reward) {:.2f}'.format('increase' if reward >= 0 else 'decrease', abs(reward))
-                effect += indent('\n\t{} ({})'.format(prob, self._propositions_to_str(eff, end)), 3)
-            effect += '\n\t\t\t\n\t'
+            effect = str(effect)
 
         if self._option_descriptor is None:
             name = self._operator.name
@@ -100,24 +96,10 @@ class _PrettyPrint:
         if self._index is not None:
             name += '-{}'.format(self._index)
 
-        return '(:action {}\n\t:parameters ()\n\t:precondition ({})\n\t:effect ({})\n)'.format(name,
-                                                                                               precondition,
-                                                                                               effect)
+        return '(:action {}\n\t:parameters ()\n\t:precondition {}\n\t:effect {}\n)'.format(name,
+                                                                                           precondition,
+                                                                                           effect)
 
-    def _propositions_to_str(self, propositions: List[Proposition], end=None) -> str:
-        if len(propositions) == 0:
-            raise ValueError("No propositions found")
-
-        # filter out no effects
-        propositions = [x for x in propositions if not x.is_noop]
-
-        propositions = list(map(str, propositions))
-        if end is not None:
-            propositions.append(end)
-
-        if len(propositions) == 1:
-            return '{}'.format(propositions[0])
-        return 'and {}'.format(' '.join(['({})'.format(x) for x in propositions]))
 
     # # todo: LOOK AT
     # def is_duplicate(self, other):

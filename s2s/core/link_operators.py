@@ -2,18 +2,26 @@
 The functions here are responsible for taking the portable representations and augmenting with problem-specific
 information to ensure they are sound for planning
 """
+import warnings
 from collections import defaultdict
 
-from typing import List
+from typing import List, Dict
 
+import pandas as pd
 from s2s.core.learned_operator import LearnedOperator
 from s2s.core.partitioned_option import PartitionedOption
+from s2s.pddl.domain_description import PDDLDomain
 from s2s.pddl.pddl_operator import PDDLOperator
+from s2s.pddl.problem_description import PDDLProblem
 from s2s.portable.operator_data import OperatorData
+from s2s.portable.problem_symbols import ProblemSymbols
+from s2s.utils import show, pd2np
+
+import numpy as np
 
 
-def combine_operator_data(partitioned_options: List[PartitionedOption], operators: List[LearnedOperator],
-                          pddl_operators: List[PDDLOperator]) -> List[OperatorData]:
+def combine_operator_data(partitioned_options: Dict[int, List[PartitionedOption]], operators: List[LearnedOperator],
+                          pddl_operators: List[PDDLOperator], **kwargs) -> List[OperatorData]:
     """
     Combine all our data into a list of struct-like objects. This associates a partitioned option with its learned
     operator (precondition and effects) and its subsequent PDDL operators
@@ -27,14 +35,58 @@ def combine_operator_data(partitioned_options: List[PartitionedOption], operator
     for x in pddl_operators:
         pddl_operator_map[(x.option, x.partition)].append(x)
     operator_data = list()
-    for partitioned_option in partitioned_options:
-        option, partition = partitioned_option.option, partitioned_option.partition
-        learned_operator = operator_map.get((option, partition), None)
-        if learned_operator is None:
-            raise ValueError("Unable to find learned operator for option {}, partition {}".format(option, partition))
-        pddl_operator = pddl_operator_map.get((option, partition), None)
-        if pddl_operator is None or len(pddl_operator) == 0:
-            raise ValueError("Unable to find PDDL operator for option {}, partition {}".format(option, partition))
-        operator_data.append(OperatorData(partitioned_option, learned_operator, pddl_operator))
+    for option, list_partitions in partitioned_options.items():
+        for partitioned_option in list_partitions:
+            partition = partitioned_option.partition
+            learned_operator = operator_map.get((option, partition), None)
+            if learned_operator is None:
+                raise ValueError(
+                    "Unable to find learned operator for option {}, partition {}".format(option, partition))
+            pddl_operator = pddl_operator_map.get((option, partition), [])
+            if len(pddl_operator) == 0:
+                warnings.warn("Unable to find PDDL operator for option {}, partition {}".format(option, partition))
+            operator_data.append(OperatorData(partitioned_option, learned_operator, pddl_operator, **kwargs))
     return operator_data
 
+
+def link_pddl(domain: PDDLDomain, operator_data: List[OperatorData], verbose=False):
+    problem_symbols = ProblemSymbols()
+
+    for operator in operator_data:
+        for link in operator.links:
+            for start, end, prob in link:
+
+                if prob != 1:
+                    warnings.warn("Untested for case where linking prob != 1")
+
+                precondition = problem_symbols.add(start)
+                if end is None:
+                    effect = -1
+                else:
+                    effect = problem_symbols.add(end)
+                show("Adding p_symbol{} and p_symbol{}".format(precondition, effect), verbose)
+                operator.add_problem_symbols(precondition, effect, prob)
+
+    linked_domain = domain.copy(keep_operators=False)
+    # re-adding operators which are now linked!
+    for operator in operator_data:
+        for schema in operator.schemata:
+            linked_domain.add_operator(schema)
+
+    linked_domain.set_n_problem_symbols(len(problem_symbols))
+    return linked_domain, problem_symbols
+
+
+def find_closest_start_partition(problem_symbols: ProblemSymbols, transition_data: pd.DataFrame):
+    initial_states = pd2np(transition_data.groupby('episode').nth(0)['state'])
+    target = np.mean(initial_states, 0)
+
+    closest = None
+    distance = np.inf
+
+    for proposition in problem_symbols:
+        mean = np.mean(proposition.sample(100), axis=0)
+        if np.linalg.norm(mean - target, np.inf) < distance:
+            distance = np.linalg.norm(mean - target, np.inf)
+            closest = proposition
+    return closest

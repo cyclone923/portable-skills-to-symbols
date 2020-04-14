@@ -1,10 +1,16 @@
 from typing import List
 
+from gym_multi_treasure_game.envs.multiview_env import View
 from s2s.core.learned_operator import LearnedOperator
 from s2s.core.partitioned_option import PartitionedOption
+from s2s.pddl.linked_operator import LinkedPDDLOperator
 from s2s.pddl.pddl_operator import PDDLOperator
 
 import numpy as np
+
+from s2s.pddl.pddl import Proposition
+from s2s.portable.link import Link
+from s2s.utils import show
 
 
 class OperatorData:
@@ -23,16 +29,31 @@ class OperatorData:
         """
         self._partitioned_option = partitioned_option
         self._subpartitions = partitioned_option.subpartition(**kwargs)
-        self._schemata = pddl_operators
+        self._schemata = [LinkedPDDLOperator(x) for x in pddl_operators]
         self._learned_operator = learned_operator
 
         if len(self._subpartitions) == 0:
             #  Then we need to ground the precondition only
-            states = np.array([partitioned_option.extract_prob_space(partitioned_option.observations[i]) for i in
-                               range(partitioned_option.states.shape[0])])
-            self.links = [Link(states, None)]
+            view = View.PROBLEM if partitioned_option.view == View.PROBLEM else View.AGENT
+            if view == View.PROBLEM:
+                states = partitioned_option.problem_states
+            else:
+                states = partitioned_option.agent_states
+            self._links = [Link(states, None, **kwargs)]
         else:
-            self.links = [Link(subpartition.states, subpartition.next_states) for subpartition in self._subpartitions]
+            self._links = list()
+            for subpartition in self._subpartitions:
+                init_states = subpartition.states  # initial states based on subpartition's view
+                for prob, _, _, next_states, _ in subpartition.effects():
+                    self._links.append(Link(init_states, next_states, probability=prob, **kwargs))
+
+    @property
+    def schemata(self) -> List[LinkedPDDLOperator]:
+        return self._schemata
+
+    @property
+    def links(self):
+        return self._links
 
     @property
     def option(self) -> int:
@@ -49,51 +70,6 @@ class OperatorData:
             return 1
         return len(self._subpartitions)
 
-    #  init set in problem space
-    def observations(self, idx=0):
-        return samples2np(self._subpartitions[idx].states)
-
-    # terminal set in problem space
-    def next_observations(self, idx=0):
-        # problem space is just xy position (first 4)
-        return samples2np(self._subpartitions[idx].next_states)
-
-    def add_problem_symbols(self, pddl, precondition_idx, effect_idx):
-        print("Adding p_symbol{} and p_symbol{}".format(precondition_idx, effect_idx))
+    def add_problem_symbols(self, precondition_idx: int, effect_idx: int, prob: float):
         for operator in self._schemata:
-            precondition = Predicate('psymbol_{}'.format(precondition_idx))
-            if effect_idx != -1:
-                effect = Predicate('psymbol_{}'.format(effect_idx))
-                operator.link(precondition, effect)
-            else:
-                operator.link(precondition, None)
-                # operator.add_effect(effect)
-                # operator.add_effect(precondition.negate())
-
-            # propositionalise objects to avoid ambiguity
-            mask = self.full_mask
-            instantiated = False
-            for i, m in enumerate(mask):
-                if not pddl.is_ambiguous(m):
-                    # object is its own type, so can ignore!
-                    continue
-                else:
-                    new_type = 'type{}{}'.format(pddl.object_type(m), chr(ord('a') + m - 1))
-                    pddl.add_grounded_type(m, 'type{}'.format(pddl.object_type(m)), new_type)
-                    operator.instantiate_object(i, new_type)
-                    instantiated = True
-
-            if not instantiated:
-                operator.instantiate_object(-1, None)
-
-    def observation_mask(self, idx):
-
-        if len(self._subpartitions) == 0:
-            return []
-
-        masks = set()
-        for obs, next_obs in zip(self.observations(idx), self.next_observations(idx)):
-            mask = np.array([j for j in range(0, len(obs)) if not np.array_equal(obs[j], next_obs[j])])
-            for m in mask:
-                masks.add(m)
-        return np.sort(list(masks))
+            operator.add_link(precondition_idx, effect_idx, prob)
