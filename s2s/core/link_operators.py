@@ -14,7 +14,7 @@ from s2s.pddl.domain_description import PDDLDomain
 from s2s.pddl.pddl_operator import PDDLOperator
 from s2s.pddl.problem_description import PDDLProblem
 from s2s.portable.operator_data import OperatorData
-from s2s.portable.problem_symbols import ProblemSymbols
+from s2s.portable.problem_symbols import ProblemSymbols, FactoredProblemSymbols
 from s2s.utils import show, pd2np
 
 import numpy as np
@@ -49,9 +49,9 @@ def combine_operator_data(partitioned_options: Dict[int, List[PartitionedOption]
     return operator_data
 
 
-def link_pddl(domain: PDDLDomain, operator_data: List[OperatorData], verbose=False):
-    problem_symbols = ProblemSymbols()
-
+def link_pddl(n_dims, domain: PDDLDomain, operator_data: List[OperatorData], verbose=False):
+    problem_symbols = FactoredProblemSymbols(n_dims)
+    # problem_symbols = ProblemSymbols()
     for operator in operator_data:
         for link in operator.links:
             for start, end, prob in link:
@@ -74,7 +74,7 @@ def link_pddl(domain: PDDLDomain, operator_data: List[OperatorData], verbose=Fal
             linked_domain.add_operator(schema)
 
     linked_domain.set_n_problem_symbols(len(problem_symbols))
-    return linked_domain, problem_symbols
+    return linked_domain, problem_symbols, operator_data
 
 
 def find_closest_start_partition(problem_symbols: ProblemSymbols, transition_data: pd.DataFrame):

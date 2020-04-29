@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from typing import List
 
 from gym_multi_treasure_game.envs.multiview_env import View
@@ -47,6 +49,8 @@ class OperatorData:
                 for prob, _, _, next_states, _ in subpartition.effects():
                     self._links.append(Link(init_states, next_states, probability=prob, **kwargs))
 
+        self.linking_function = defaultdict(list)
+
     @property
     def schemata(self) -> List[LinkedPDDLOperator]:
         return self._schemata
@@ -71,5 +75,8 @@ class OperatorData:
         return len(self._subpartitions)
 
     def add_problem_symbols(self, precondition_idx: int, effect_idx: int, prob: float):
+
+        self.linking_function[precondition_idx].append((prob, effect_idx))
+
         for operator in self._schemata:
             operator.add_link(precondition_idx, effect_idx, prob)
