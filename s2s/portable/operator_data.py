@@ -3,7 +3,7 @@ import warnings
 from typing import List
 
 from gym_multi_treasure_game.envs.multiview_env import View
-from linking_function import LinkingFunction
+from s2s.portable.linking_function import LinkingFunction
 from s2s.core.learned_operator import LearnedOperator
 from s2s.core.partitioned_option import PartitionedOption
 from s2s.portable.quick_cluster import QuickCluster
