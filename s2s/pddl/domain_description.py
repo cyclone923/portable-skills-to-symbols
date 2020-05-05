@@ -16,7 +16,7 @@ class PDDLDomain:
         self._probabilistic = kwargs.get('probabilistic', True)
         self._rewards = kwargs.get('specify_rewards', True)
         self._conditional_effects = kwargs.get('conditional_effects', False)
-        self._n_problem_symbols = 0
+        self.problem_symbols = set()
 
     @property
     def probabilistic(self):
@@ -42,8 +42,8 @@ class PDDLDomain:
     def conditional_effects(self, value):
         self._conditional_effects = value
 
-    def set_n_problem_symbols(self, n_problem_symbols):
-        self._n_problem_symbols = n_problem_symbols
+    def set_problem_symbols(self, problem_symbols):
+        self.problem_symbols = problem_symbols
 
     def copy(self, keep_operators=True) -> 'PDDLDomain':
         """
@@ -53,7 +53,7 @@ class PDDLDomain:
         operators = self._operators if keep_operators else []
         new_domain = PDDLDomain(self._env, self._vocabulary, operators, probabilistic=self.probabilistic,
                                 specify_rewards=self.specify_rewards, conditional_effects=self.conditional_effects)
-        new_domain.set_n_problem_symbols(self._n_problem_symbols)
+        new_domain.set_problem_symbols(self.problem_symbols)
         return new_domain
 
     @property
@@ -79,7 +79,7 @@ class PDDLDomain:
         if self.conditional_effects:
             requirements += '\n\n(:functions (linking))'
         else:
-            symbols += '\n\n' + '\n'.join(['(psymbol_{})'.format(i) for i in range(self._n_problem_symbols)])
+            symbols += '\n\n' + '\n'.join(['(psymbol_{})'.format(name) for name in self.problem_symbols])
 
         predicates = '(:predicates\n{}\n)'.format(indent(symbols))
 

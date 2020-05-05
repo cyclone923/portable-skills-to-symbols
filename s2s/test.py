@@ -2,27 +2,19 @@
 import copy
 
 from gym_multi_treasure_game.envs.multiview_env import View
-from s2s.core.build_pddl import build_pddl, find_goal_symbols
-from s2s.core.explore import collect_data
-from s2s.core.learn_operators import learn_preconditions, learn_effects, combine_learned_operators
 from s2s.core.link_operators import combine_operator_data, link_pddl, find_closest_start_partition
-from s2s.core.partition import partition_options
-from s2s.core.quick_cluster import QuickCluster
 from s2s.env.envs import MultiTreasureGame
-from s2s.env.s2s_env import S2SWrapper
 from s2s.image import Image
 from s2s.pddl.domain_description import PDDLDomain
-from s2s.pddl.problem_description import PDDLProblem
-from s2s.pddl.pddl import Proposition
 from s2s.planner.mgpt_planner import mGPT
-from s2s.render import visualise_partitions, visualise_preconditions, visualise_symbols
-from s2s.utils import make_dir, save, load, now
+from s2s.portable.quick_cluster import QuickCluster
+from s2s.render import visualise_symbols
+from s2s.utils import make_dir, save, load
 import pandas as pd
 import numpy as np
 
 
 def render(env, states, **kwargs):
-
     if np.isnan(states).any():
         kwargs['agent_alpha'] = 0.5
         return env.render_states(states, **kwargs, view=View.PROBLEM)
@@ -98,9 +90,11 @@ if __name__ == '__main__':
     #                   render=lambda x: env.render_states(x, view=View.AGENT, randomly_sample=False), view=View.AGENT)
 
     # pddl = PDDLDomain(env, vocabulary, schemata)
-    # print(pddl)
+    # # print(pddl)
     # save(pddl, '{}/domain.pkl'.format(save_dir))
     # save(pddl, '{}/domain.pddl'.format(save_dir), binary=False)
+
+
     #
     # pddl_problem = PDDLProblem('p1', env.name)
     # pddl_problem.add_start_proposition(Proposition.not_failed())
@@ -145,44 +139,37 @@ if __name__ == '__main__':
 
     #
 
-    qc = QuickCluster(env.n_dims(View.PROBLEM), 0.25)
-    for _, row in transition_data.iterrows():
-        state, next_state = row['state'], row['next_state']
-        qc.add(state)
-        qc.add(next_state)
+    # clusterer = QuickCluster(env.n_dims(View.PROBLEM), 0.25)
+    # for _, row in transition_data.iterrows():
+    #     state, next_state = row['state'], row['next_state']
+    #     clusterer.add(state)
+    #     clusterer.add(next_state)
+    #
+    # save(clusterer, '{}/quick_cluster.pkl'.format(save_dir))
 
-        if _ % 100 == 0:
-            print(_)
+    clusterer = load('{}/quick_cluster.pkl'.format(save_dir))
 
-    save(qc, '{}/quick_cluster.pkl'.format(save_dir))
-
-    exit(0)
-
-    qc = load('{}/quick_cluster.pkl'.format(save_dir))
-
-    operator_data = combine_operator_data(qc, partitions, operators, schemata, verbose=True, effect_min_samples=1,
-                                          init_min_samples=1)
+    operator_data = combine_operator_data(partitions, operators, schemata, verbose=True)
     save(operator_data, '{}/operator_data.pkl'.format(save_dir))
     operator_data = load('{}/operator_data.pkl'.format(save_dir))
-    #
-    linked_domain, problem_symbols, linked_operator_data = link_pddl(env.n_dims(View.PROBLEM), pddl, operator_data,
-                                                                     verbose=True)
+    linked_domain, linked_operator_data = link_pddl(pddl,
+                                                    operator_data,
+                                                    clusterer,
+                                                    verbose=True)
     linked_domain.conditional_effects = False
     #
 
     save(linked_operator_data, '{}/linked_operator_data.pkl'.format(save_dir))
 
-
     save(linked_domain, '{}/linked_domain.pkl'.format(save_dir))
     save(linked_domain, '{}/linked_domain.pddl'.format(save_dir), binary=False)
-    save(problem_symbols, '{}/problem_symbols.pkl'.format(save_dir))
     #
-    problem_symbols = load('{}/problem_symbols.pkl'.format(save_dir))
-    # visualise_symbols('{}/vis_p_symbols'.format(save_dir), env, problem_symbols, verbose=True,
+    # visualise_symbols('{}/vis_p_symbols'.format(save_dir), env, clusterer, verbose=True,
     #                   render=lambda x: render(env, x), view=View.PROBLEM, short_name=True)
 
+
     problem = copy.copy(pddl_problem)
-    start = find_closest_start_partition(problem_symbols, transition_data)
+    start = find_closest_start_partition(clusterer, transition_data)
     problem.add_start_proposition(start)
     save(problem, '{}/linked_problem.pkl'.format(save_dir))
     problem = load('{}/linked_problem.pkl'.format(save_dir))

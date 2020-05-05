@@ -147,7 +147,7 @@ if __name__ == '__main__':
     problem_symbols = load('output/problem_symbols.pkl')
 
     plan = [3, 1, 3, 6, 1, 8, 2, 1, 2, 0, 4, 0, 1, 1, 3, 4, 1, 0, 0]
-    plan = [3, 1]
+    plan = [3]
     # plan = [0, 1, 1, 3, 4, 1, 0, 0]
     prob = evaluate_plan(env, operators, problem_symbols, plan)
     print(prob)

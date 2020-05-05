@@ -10,12 +10,11 @@ from typing import List, Dict
 import pandas as pd
 from s2s.core.learned_operator import LearnedOperator
 from s2s.core.partitioned_option import PartitionedOption
+from s2s.portable.quick_cluster import QuickCluster
 from s2s.pddl.domain_description import PDDLDomain
 from s2s.pddl.pddl_operator import PDDLOperator
-from s2s.pddl.problem_description import PDDLProblem
 from s2s.portable.operator_data import OperatorData
-from s2s.portable.problem_symbols import ProblemSymbols, FactoredProblemSymbols
-from s2s.utils import show, pd2np
+from s2s.utils import pd2np
 
 import numpy as np
 
@@ -49,23 +48,12 @@ def combine_operator_data(partitioned_options: Dict[int, List[PartitionedOption]
     return operator_data
 
 
-def link_pddl(n_dims, domain: PDDLDomain, operator_data: List[OperatorData], verbose=False):
-    problem_symbols = FactoredProblemSymbols(n_dims)
-    # problem_symbols = ProblemSymbols()
+def link_pddl(domain: PDDLDomain, operator_data: List[OperatorData], quick_cluster: QuickCluster,
+              verbose=False):
+    names = set()
     for operator in operator_data:
-        for link in operator.links:
-            for start, end, prob in link:
-
-                if prob != 1:
-                    warnings.warn("Untested for case where linking prob != 1")
-
-                precondition = problem_symbols.add(start)
-                if end is None:
-                    effect = -1
-                else:
-                    effect = problem_symbols.add(end)
-                show("Adding p_symbol{} and p_symbol{}".format(precondition, effect), verbose)
-                operator.add_problem_symbols(precondition, effect, prob)
+        p_symbols = operator.link(quick_cluster, verbose)  # link it all up!
+        names.update(p_symbols)
 
     linked_domain = domain.copy(keep_operators=False)
     # re-adding operators which are now linked!
@@ -73,20 +61,11 @@ def link_pddl(n_dims, domain: PDDLDomain, operator_data: List[OperatorData], ver
         for schema in operator.schemata:
             linked_domain.add_operator(schema)
 
-    linked_domain.set_n_problem_symbols(len(problem_symbols))
-    return linked_domain, problem_symbols, operator_data
+    linked_domain.set_problem_symbols(names)
+    return linked_domain, operator_data
 
 
-def find_closest_start_partition(problem_symbols: ProblemSymbols, transition_data: pd.DataFrame):
+def find_closest_start_partition(problem_symbols: QuickCluster, transition_data: pd.DataFrame):
     initial_states = pd2np(transition_data.groupby('episode').nth(0)['state'])
     target = np.mean(initial_states, 0)
-
-    closest = None
-    distance = np.inf
-
-    for proposition in problem_symbols:
-        mean = np.mean(proposition.sample(100), axis=0)
-        if np.linalg.norm(mean - target, np.inf) < distance:
-            distance = np.linalg.norm(mean - target, np.inf)
-            closest = proposition
-    return closest
+    return problem_symbols.get(target)
