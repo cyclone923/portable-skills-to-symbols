@@ -1,6 +1,6 @@
 from typing import List
 
-from s2s.pddl.pddl import Proposition
+from s2s.pddl.pddl import Proposition, FluentPredicate
 from s2s.utils import indent
 
 
@@ -10,9 +10,17 @@ class PDDLProblem:
         self.domain = domain_name
         self.start_propositions = list()
         self.goal_propositions = list()
+        self.conditional_effects = False
+
 
     def add_start_proposition(self, proposition: Proposition):
-        self.start_propositions.append(proposition)
+
+        if not self.conditional_effects:
+            self.start_propositions.append(proposition)
+        else:
+            temp = str(proposition)
+            start_partition = int(temp[temp.index('_') + 1: -1])
+            self.start_propositions.append(FluentPredicate('=', 'linking', start_partition))
 
     def add_goal_proposition(self, proposition: Proposition):
         self.goal_propositions.append(proposition)

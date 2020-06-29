@@ -91,11 +91,13 @@ class Clause:
     A collection of propositions
     """
 
-    def __init__(self, symbols: List[Proposition] = None):
+    def __init__(self, symbols: List[Proposition] = None, conjunctive=True):
         """
         Create a new clause with associated probability
         :param symbols: the propositions
+        :type conjunctive: True if the propositions are combined conjunctively, false if disjunctive
         """
+        self._conjunctive = conjunctive
         symbols = if_not_none(symbols, list())
         self._symbols = copy.copy(symbols)
 
@@ -118,7 +120,8 @@ class Clause:
             raise ValueError("No propositions found")
         if len(propositions) == 1:
             return '{}'.format(propositions[0])
-        return '(and {})'.format(' '.join(['{}'.format(x) for x in propositions]))
+        conjunction = 'and' if self._conjunctive else 'or'
+        return '({} {})'.format(conjunction, ' '.join(['{}'.format(x) for x in propositions]))
 
 
 class Probabilistic:
@@ -130,10 +133,16 @@ class Probabilistic:
         self.prob_sum = 0
         self._values: List[Tuple[float, Clause]] = list()
 
-    def add(self, value: Clause, prob=1) -> 'Probabilistic':
+    def add(self, value: Union[Clause, Proposition], prob=1) -> 'Probabilistic':
+        if isinstance(value, Proposition):
+            value = Clause([value])  # turn it into a clause
+
         self._values.append((prob, value))
         self.prob_sum += prob
         return self
+
+    def __len__(self):
+        return len(self._values)
 
     def __str__(self):
 
@@ -156,6 +165,22 @@ class ConditionalEffect:
         self._effect = effect
 
     def __str__(self):
-        precondition = indent(str(self._precondition), 2)
-        effect = indent(str(self._effect), 2)
-        return '(when\n{}\n{}\n)'.format(precondition, effect)
+        return '(when {} {})'.format(self._precondition, self._effect)
+
+
+class MixedEffect:
+    """
+    Holder for effects that are both regular and conditional
+    """
+
+    def __init__(self, regular_effect: Union[Clause, Probabilistic], conditional_effects: List[ConditionalEffect]):
+        self._regular_effect = regular_effect
+        self._conditional_effects = conditional_effects
+
+    def __len__(self):
+        return len(self._conditional_effects) + 1 if isinstance(self._regular_effect, Clause) else len(
+            self._regular_effect)
+
+    def __str__(self):
+        return '(and {}\n{})'.format(self._regular_effect,
+                                         '\n'.join([indent('{}'.format(x), 3) for x in self._conditional_effects]))

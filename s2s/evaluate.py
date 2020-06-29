@@ -1,6 +1,6 @@
 import time
 from collections import deque
-from typing import List
+from typing import List, Iterable
 import matplotlib.pyplot as plt
 
 import gym
@@ -12,19 +12,25 @@ from s2s.core.learned_operator import LearnedOperator
 from s2s.core.link_operators import find_closest_start_partition
 from s2s.env.envs import MultiTreasureGame
 from s2s.env.s2s_env import S2SEnv
+from s2s.image import Image
+from s2s.pddl.pddl import Proposition
 from s2s.portable.operator_data import OperatorData
 from s2s.portable.problem_symbols import ProblemSymbols
+from s2s.portable.quick_cluster import QuickCluster
 from s2s.utils import load
 
 
-def show(next_states):
-    im = env.render_states(next_states, view=View.AGENT, randomly_sample=False)
+def show(x, view=View.AGENT):
+    if view == View.PROBLEM:
+        im = env.render_states(x, view=View.PROBLEM, randomly_sample=False)
+    else:
+        im = Image.merge([env.render_state(state, agent_alpha=0.5, view=View.AGENT, randomly_sample=False) for state in x])
     # viewer.imshow(im.astype(int))
     plt.imshow(im.astype(int))
     plt.show()
 
 
-def evaluate_plan(env: S2SEnv, operators: List[OperatorData], problem_symbols: ProblemSymbols, plan: List[int],
+def evaluate_plan(env: S2SEnv, operators: List[OperatorData], problem_symbols: QuickCluster, plan: List[int],
                   use_rewards=True, n_samples=100, verbose=False):
     """
     Evaluate a plan
@@ -72,12 +78,12 @@ def evaluate_plan(env: S2SEnv, operators: List[OperatorData], problem_symbols: P
                 pre_prob = learned_operator.precondition.probability(self.states)
                 if pre_prob < 0.05:
                     continue
-                for partition_prob, next_partition in candidate.linking_function[self.current_partition]:
+                for next_partition, prob_link_transition in candidate.linking_function[self.current_partition]:
                     for next_prob, eff, reward in learned_operator.outcomes():
                         next_states = np.copy(self.states)
                         next_states[:, eff.mask] = np.around(eff.sample(next_states.shape[0]))
 
-                        prob = self.prob * pre_prob * next_prob * partition_prob
+                        prob = self.prob * pre_prob * next_prob * prob_link_transition
                         if reward is None:
                             rew = 0
                         else:
@@ -89,15 +95,7 @@ def evaluate_plan(env: S2SEnv, operators: List[OperatorData], problem_symbols: P
             return sorted(neighbours, key=lambda x: x.prob, reverse=True)
 
     state, obs = env.reset()
-
-    start_partition = None
-    distance = np.inf
-
-    for proposition in problem_symbols:
-        mean = np.mean(proposition.sample(100), axis=0)
-        if np.linalg.norm(mean - state, np.inf) < distance:
-            distance = np.linalg.norm(mean - state, np.inf)
-            start_partition = proposition
+    start_partition = problem_symbols.get(state)
 
     temp = str(start_partition)
     start_partition = int(temp[temp.index('_') + 1: -1])
@@ -105,7 +103,6 @@ def evaluate_plan(env: S2SEnv, operators: List[OperatorData], problem_symbols: P
     # obs = np.array([1,1,1,2,9,0,1,1,1,0,0])
 
     state_dist = np.vstack([obs for _ in range(n_samples)])
-
 
     stack = deque()
     current = _Node(state_dist, start_partition, plan)
@@ -133,8 +130,13 @@ def evaluate_plan(env: S2SEnv, operators: List[OperatorData], problem_symbols: P
             x = x.parent
         while len(path) > 0:
             x = path.pop()
-            im = env.render_states(x.states, view=View.AGENT, randomly_sample=False)
+
+            im = Image.merge(
+                [env.render_state(state, agent_alpha=0.5, view=View.AGENT, randomly_sample=False)
+                 for state in x.states])
+
             plt.imshow(im.astype(int))
+            plt.title('{}'.format(x.current_partition))
             plt.show()
             plt.pause(0.5)
 
@@ -143,13 +145,13 @@ def evaluate_plan(env: S2SEnv, operators: List[OperatorData], problem_symbols: P
 
 if __name__ == '__main__':
     env = MultiTreasureGame(version_number=1)
-    operators = load('output/linked_operator_data.pkl')
-    problem_symbols = load('output/problem_symbols.pkl')
+    operators = load('portable_output_good/linked_operator_data.pkl')
+    quick_cluster = load('portable_output_good/quick_cluster.pkl')
 
     plan = [3, 1, 3, 6, 1, 8, 2, 1, 2, 0, 4, 0, 1, 1, 3, 4, 1, 0, 0]
-    plan = [3]
+    plan = [3, 1, 3, 6, 1, 8, 2, 1, 2, 0, 4, 0, 1, 1, 3, 4, 1]
     # plan = [0, 1, 1, 3, 4, 1, 0, 0]
-    prob = evaluate_plan(env, operators, problem_symbols, plan)
+    prob = evaluate_plan(env, operators, quick_cluster, plan)
     print(prob)
     #                    0       1         2           3            4        5            6          7          8
     # option_list = [go_left, go_right, up_ladder, down_ladder, interact, down_left, down_right, jump_left, jump_right]

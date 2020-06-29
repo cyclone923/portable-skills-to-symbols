@@ -160,5 +160,3 @@ class FactoredProblemSymbols:
             data = [x[0:min_length] for x in data]
 
             yield _ProblemProposition(self._get_name(indices), np.vstack(data).T)
-
-        #

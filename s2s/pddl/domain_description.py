@@ -69,9 +69,9 @@ class PDDLDomain:
     def __str__(self):
         comment = ';Automatically generated {} domain PPDDL file.'.format(self._env.name)
         definition = 'define (domain {})'.format(self._env.name)
-        requirements = '(:requirements :strips{}{})'.format(' :probabilistic-effects' if self.probabilistic else '',
-                                                            ' :rewards' if self.specify_rewards else '',
-                                                            ' :conditional_effects' if self.conditional_effects else '')
+        requirements = '(:requirements :strips{}{}{})'.format(' :probabilistic-effects' if self.probabilistic else '',
+                                                              ' :rewards' if self.specify_rewards else '',
+                                                              ' :conditional-effects :fluents :equality :disjunctive-preconditions' if self.conditional_effects else '')
 
         symbols = '{}\n'.format(Proposition.not_failed()) + '\n'.join(
             ['{}'.format(x) for x in self._vocabulary])

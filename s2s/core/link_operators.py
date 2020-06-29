@@ -5,7 +5,7 @@ information to ensure they are sound for planning
 import warnings
 from collections import defaultdict
 
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import pandas as pd
 from s2s.core.learned_operator import LearnedOperator
@@ -49,7 +49,7 @@ def combine_operator_data(partitioned_options: Dict[int, List[PartitionedOption]
 
 
 def link_pddl(domain: PDDLDomain, operator_data: List[OperatorData], quick_cluster: QuickCluster,
-              verbose=False):
+              verbose=False) -> Tuple[PDDLDomain, List[OperatorData]]:
     names = set()
     for operator in operator_data:
         p_symbols = operator.link(quick_cluster, verbose)  # link it all up!
